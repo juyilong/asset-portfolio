@@ -1,0 +1,145 @@
+function out = PortOpt_Inputs_frontier(mu,corr,vols,strat,short,lev,levnum,Xnum)
+%%***********************************************************************%%
+% INPUTS:
+% mu: a vector of mean returns 
+% corr: a correlation matrix
+% vols: a vector of volatilities               
+% strat: 'minvar' is the only option currently       
+% short: 'shorts', 'noshorts'       
+% lev:   leverage of no leverage is allowed, 'nl','l'      
+% levnum:'1', '2', '3', ect... Note this is irrelevant if 'nl' is chosen
+%       
+% OUTPUTS:
+% out.Risk = all volatility points;
+% out.Ret = all mean points;
+% out.weights = weights;
+% out.MuVEC = all expected return targets
+% out.muvols = all individual asset stats 
+%       
+% STEP 1: Preallocation and common variable defintions
+%%***********************************************************************%%
+n = size(mu,1);
+y=ones(n,1); % weights sum to one
+a = n;
+% Optimization variables
+x0 = linspace(1/a,1/a,a)'; % initialize initial guess of weights as a 1/a
+Aeq = y'; % create a row vector ones 
+beq = 1; % sets the scalar quantity equality of portfolio weights
+% Now discretize mu into Xnum parts
+minMU = min(mu);
+maxMU = max(mu);
+muTGT = linspace(minMU,maxMU,Xnum)';
+npoints = size(muTGT,1);
+% Set up the constraints
+switch(short)
+    case 'shorts'
+        switch(lev)
+            case 'lev' % used to establish leverage constraints
+                A = -eye(length(y)); 
+                b = linspace(levnum,levnum,a)'; 
+            case 'nl'   
+                A = zeros(a,a);
+                b = zeros(a,1);
+            otherwise
+                error(['Be careful inputs are case sensitive ' action])
+        end
+    case 'noshorts' % shortsales constraints
+        A = -eye(a); 
+        b = zeros(a,1); 
+    otherwise
+        error(['Be careful inputs are case sensitive ' action])    
+end        
+%%***********************************************************************%%
+% STEP 2: 
+%%***********************************************************************%%
+% Mean and Cov estimation: for this simple function these are actually
+% inputs
+muwin = mu;
+covwin = diag(vols)*corr*diag(vols);
+
+%%***********************************************************************%%
+% STEP 3: 
+%%***********************************************************************%%
+weights = zeros(n,npoints);
+volpoints = zeros(npoints,1);
+meanpoints = zeros(npoints,1);
+
+for i = 1:npoints
+    AeqCON = muwin';
+    BeqCON = muTGT(i,1);
+    Aeq = vertcat(Aeq,AeqCON);
+    beq = vertcat(beq,BeqCON);
+
+    switch(strat)
+        case 'minvar'
+            options = optimset('TolX',1e-6,'Algorithm','interior-point','Display','off');
+            weights(:,i) = fmincon(@(w)minimumvar(w,covwin),x0,A,b,Aeq,beq,[],[],[],options);
+
+        otherwise
+            error(['Be careful inputs are case sensitive ' action])     
+    end
+    Aeq = Aeq(1:end-1,:);
+    beq = beq(1:end-1,:);
+    volpoints(i,1) = sqrt(weights(:,i)'*covwin*weights(:,i));
+    meanpoints(i,1) = weights(:,i)'*muwin;
+    
+end
+
+% Calculate random weights
+%w8srandom = zeros(1000,n);
+% meanRAND = zeros(1000,1);
+% volRAND = zeros(1000,1);
+% for i = 1:1000
+%     r1 = rand(n,1);
+%     w8rand = r1./sum(r1);
+%     volRAND(i,1) = sqrt(w8rand'*covwin*w8rand);
+%     meanRAND(i,1) = w8rand'*muwin;
+% end
+%     
+% 
+% %%***********************************************************************%%
+% % STEP 4: Compute statistics and results
+% %%***********************************************************************%%
+% scatter(volpoints,meanpoints,'MarkerFaceColor','red');
+% hold on
+% scatter(vols,mu,'MarkerFaceColor','blue');
+%%***********************************************************************%%
+% STEP 5: Specifiy output structures
+%%***********************************************************************%%
+out.Risk = volpoints;
+out.Ret = meanpoints;
+out.weights = weights;
+out.MuVEC = muTGT;
+out.muvols = horzcat(vols,mu);
+%%***********************************************************************%%
+% Functions to Optimize
+%%***********************************************************************%%
+function f = minimumvar(w,c)
+f = ((w'*c*w));
+end
+ 
+end
+
+%use the function;
+mu = [0.09;0.14;0.06];
+n = size(mu,1);
+vols = [0.05;0.10;0.08];
+corravg = 0.7;
+i=eye(n);
+corr=zeros(n)+corravg+0.3*i;
+
+strat = 'minvar';
+%impose a constraint that does not allow shortsales 
+short = 'noshorts';
+lev = 'nl';
+levnum = 1;
+Xnum =  100;
+m3 = PortOpt_Inputs_frontier(mu,corr,vols,strat,short,lev,levnum,Xnum);
+%change the facecolor
+scatter(m3.Risk,m3.Ret,'MarkerFaceColor',[255 40 45]/255);
+xlim([0 max(vols)]); 
+ylim([0 max(mu)]);
+hold on
+scatter(m3.muvols(:,1),m3.muvols(:,2),'MarkerFaceColor',[139 35 35]/255);
+xlabel('Volatility');
+ylabel('Expected Return');
